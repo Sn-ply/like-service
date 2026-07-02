@@ -1,10 +1,16 @@
 package config
 
-import "github.com/spf13/viper"
+import (
+	"strings"
+
+	"github.com/spf13/viper"
+)
 
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	Kafka    KafkaConfig
+	Posts    PostsConfig
 }
 
 type ServerConfig struct {
@@ -15,8 +21,18 @@ type DatabaseConfig struct {
 	URL string
 }
 
+type KafkaConfig struct {
+	Brokers []string
+}
+
+type PostsConfig struct {
+	ServiceURL string
+}
+
 func Load() (*Config, error) {
 	viper.SetDefault("SERVER_PORT", "8084")
+	viper.SetDefault("KAFKA_BROKERS", "localhost:29092")
+	viper.SetDefault("POST_SERVICE_URL", "http://localhost:8082")
 
 	viper.AutomaticEnv()
 
@@ -26,6 +42,12 @@ func Load() (*Config, error) {
 		},
 		Database: DatabaseConfig{
 			URL: viper.GetString("DATABASE_URL"),
+		},
+		Kafka: KafkaConfig{
+			Brokers: strings.Split(viper.GetString("KAFKA_BROKERS"), ","),
+		},
+		Posts: PostsConfig{
+			ServiceURL: viper.GetString("POST_SERVICE_URL"),
 		},
 	}
 

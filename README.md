@@ -7,6 +7,8 @@ Post likes for Snaply. Go 1.22, port 8084, own Postgres DB `likes`. Trusts the `
 | Variable       | Default                                                                   | Description                    |
 |----------------|-------------------------------------------------------------------------------|---------------------------------|
 | `DATABASE_URL` | `postgres://snaply:snaply_secret@localhost:5432/likes?sslmode=disable`    | PostgreSQL connection string    |
+| `KAFKA_BROKERS`| `localhost:29092`                                                         | Comma-separated Kafka broker list |
+| `POST_SERVICE_URL` | `http://localhost:8082`                                               | Used to resolve a post's author before publishing `post.liked` |
 | `SERVER_PORT`  | `8084`                                                                    | HTTP listen port                |
 
 ## Endpoints
@@ -20,6 +22,8 @@ Post likes for Snaply. Go 1.22, port 8084, own Postgres DB `likes`. Trusts the `
 | GET    | /health                       | Health check                                                     |
 
 `POST /batch` is the main read path — feeds render many posts at once, so the frontend fetches counts + "did I like this" status for a whole page of posts in a single call instead of two requests per post.
+
+Publishes `post.liked` to Kafka on a successful like (consumed by `notification-service`).
 
 ## Running Locally
 

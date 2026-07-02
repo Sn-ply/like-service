@@ -8,9 +8,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/segmentio/kafka-go"
+	"github.com/snaply/like-service/internal/client"
 	"github.com/snaply/like-service/internal/repository"
 	"go.uber.org/zap"
 )
+
+const topicPostLiked = "post.liked"
 
 type Summary struct {
 	PostID uuid.UUID `json:"post_id"`
@@ -32,18 +36,57 @@ type LikeService interface {
 
 type likeService struct {
 	likes repository.LikeRepository
+	posts *client.PostClient
+	kafka *kafka.Writer
 	log   *zap.Logger
 }
 
-func NewLikeService(likes repository.LikeRepository, log *zap.Logger) LikeService {
-	return &likeService{likes: likes, log: log}
+func NewLikeService(likes repository.LikeRepository, posts *client.PostClient, kafkaWriter *kafka.Writer, log *zap.Logger) LikeService {
+	return &likeService{likes: likes, posts: posts, kafka: kafkaWriter, log: log}
 }
 
 func (s *likeService) Like(ctx context.Context, postID, userID uuid.UUID) error {
 	if err := s.likes.Create(ctx, postID, userID); err != nil {
 		return fmt.Errorf("creating like: %w", err)
 	}
+
+	// Publish async — a slow Kafka broker or post-service round-trip must never
+	// delay the like request itself.
+	go s.publishLiked(postID, userID)
+
 	return nil
+}
+
+func (s *likeService) publishLiked(postID, userID uuid.UUID) {
+	if s.kafka == nil {
+		return
+	}
+	ctx := context.Background()
+
+	authorID, err := s.posts.GetPostAuthor(ctx, postID)
+	if err != nil {
+		s.log.Warn("failed to resolve post author for post.liked event", zap.Error(err), zap.String("post_id", postID.String()))
+		return
+	}
+
+	event := map[string]any{
+		"post_id":   postID,
+		"user_id":   userID,
+		"author_id": authorID,
+		"timestamp": time.Now().UTC(),
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		s.log.Warn("failed to marshal post.liked event", zap.Error(err))
+		return
+	}
+	if err := s.kafka.WriteMessages(ctx, kafka.Message{
+		Topic: topicPostLiked,
+		Key:   []byte(postID.String() + ":" + userID.String()),
+		Value: data,
+	}); err != nil {
+		s.log.Warn("failed to publish post.liked event", zap.Error(err))
+	}
 }
 
 func (s *likeService) Unlike(ctx context.Context, postID, userID uuid.UUID) error {
